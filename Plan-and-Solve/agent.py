@@ -122,6 +122,5 @@ if __name__ == "__main__":
 
 --- 任务完成 ---
 最终答案: 70
-(.venv) ffchic@ffchicdeMacBook-Air Plan-and-Solve % 
 
     """
