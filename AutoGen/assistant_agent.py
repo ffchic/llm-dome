@@ -189,42 +189,6 @@ class AgentDemo:
         # 输出累积的消息总数，验证历史消息正确保留（应包含两轮的 user + assistant 消息）
         print(f"\n📊 对话中总消息数: {len(result2.messages)}")
 
-    async def demo_error_handling(self) -> None:
-        """
-        演示：生产级代码中错误处理的重要性。
-
-        要点：
-        - 使用 try/except 捕获 API 调用可能抛出的各类异常（如超时、限流、token 超限）
-        - 超长输入可能触发模型的 token 限制，需要做好边界处理
-        - 捕获错误后应提供有意义的错误提示，而非让程序静默崩溃
-        """
-        print("\n⚠️  Error Handling Demo")
-        print("-" * 40)
-
-        # 使用默认参数（temperature=0.7）创建客户端
-        model_client = self.create_model_client()
-
-        assistant = AssistantAgent(
-            name="RobustAssistant",
-            model_client=model_client,
-            system_message="你是一个优雅处理错误的助手。",
-        )
-
-        try:
-            # 正常请求：简单的数学问题，预期能正常返回结果
-            result = await assistant.run(task="2 + 2 等于多少？")
-            print(f"✅ 正常请求: {result.messages[-1].content}")
-
-            # 压力测试：构造一个极长的输入，可能触发模型的 token 上限错误
-            # "非常 " 重复 1000 次约产生 2000 个字符，用于模拟异常输入场景
-            long_task = "解释这个: " + "非常 " * 1000 + "关于AutoGen的长问题"
-            result = await assistant.run(task=long_task)
-            print(f"✅ 长请求处理: 回复长度 {len(result.messages[-1].content)}")
-
-        except Exception as e:
-            # 捕获所有异常类型，打印错误信息，避免程序崩溃影响其他流程
-            print(f"❌ 捕获错误: {e}")
-            print("💡 这展示了在生产代码中错误处理的重要性")
 
 
 async def main() -> None:

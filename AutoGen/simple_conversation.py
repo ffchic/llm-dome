@@ -26,7 +26,7 @@ load_dotenv()
 
 
 def create_model_client(temperature: float = 0.7) -> OpenAIChatCompletionClient:
-    """Create a DeepSeek-compatible model client"""
+    """创建并返回配置好的模型客户端（兼容 DeepSeek 等 OpenAI API 格式）"""
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ValueError("OPENAI_API_KEY not found in environment variables")
@@ -47,11 +47,17 @@ def create_model_client(temperature: float = 0.7) -> OpenAIChatCompletionClient:
 
 
 async def demo_teacher_student_conversation() -> None:
-    """Demonstrate a teacher-student conversation"""
+    """
+    演示：师生对话场景
+    
+    学习要点：
+    1. 如何通过提示词区分角色的知识水平（老师低 temperature，学生高 temperature）
+    2. 基于提到特定关键词（TextMentionTermination）的终止条件设定
+    """
     print("\n👨‍🏫 Teacher-Student Conversation Demo")
     print("-" * 50)
 
-    # Create teacher agent
+    # 创建教师 Agent：需要准确和严谨，因此 temperature 设低为 0.3
     teacher = AssistantAgent(
         name="PythonTeacher",
         model_client=create_model_client(temperature=0.3),
@@ -65,7 +71,7 @@ async def demo_teacher_student_conversation() -> None:
         当学生说"我明白了"时，结束这个话题。""",
     )
 
-    # Create student agent
+    # 创建学生 Agent：需要有好奇心和跳跃性思维，因此 temperature 设高为 0.8
     student = AssistantAgent(
         name="Student",
         model_client=create_model_client(temperature=0.8),
@@ -79,11 +85,11 @@ async def demo_teacher_student_conversation() -> None:
         保持学习的热情，但不要问太多问题。""",
     )
 
-    # Set up conversation with termination condition
+    # 设置终止条件：当任何一条消息中包含"我明白了"这几个字时，对话即刻终止
     termination = TextMentionTermination("我明白了")
     team = RoundRobinGroupChat([teacher, student], termination_condition=termination)
 
-    # Start the lesson
+    # 抛出初始话题，开始上课
     task = "老师，请教我Python中的列表是什么，怎么使用？"
     result = await team.run(task=task)
 
@@ -103,11 +109,17 @@ async def demo_teacher_student_conversation() -> None:
 
 
 async def demo_debate_conversation() -> None:
-    """Demonstrate a debate between two agents"""
+    """
+    演示：双智能体辩论场景
+    
+    学习要点：
+    1. 为 Agent 设定完全相反的立场
+    2. 如何让模型在逻辑上互相博弈，并在被对方说服达成共识时自然终止
+    """
     print("\n🗣️ Debate Conversation Demo")
     print("-" * 50)
 
-    # Create pro-Python agent
+    # 创建 Python 支持者 Agent
     python_advocate = AssistantAgent(
         name="PythonAdvocate",
         model_client=create_model_client(temperature=0.6),
@@ -121,7 +133,7 @@ async def demo_debate_conversation() -> None:
         进行友好的辩论，提出有力的论据。当对方说"好吧，你说得有道理"时停止辩论。""",
     )
 
-    # Create JavaScript advocate
+    # 创建 JavaScript 支持者 Agent
     js_advocate = AssistantAgent(
         name="JSAdvocate",
         model_client=create_model_client(temperature=0.6),
@@ -135,14 +147,14 @@ async def demo_debate_conversation() -> None:
         进行友好的辩论，但要保持开放的心态。如果对方论据充分，可以说"好吧，你说得有道理"。""",
     )
 
-    # Set up debate with termination condition
+    # 当一方说出"好吧，你说得有道理"时结束辩论
     termination = TextMentionTermination("好吧，你说得有道理")
     team = RoundRobinGroupChat(
         [python_advocate, js_advocate],
         termination_condition=termination,
     )
 
-    # Start the debate
+    # 抛出辩驳命题，开启辩论
     task = "让我们讨论一下：Python和JavaScript哪个更适合初学者学习编程？"
     result = await team.run(task=task)
 
@@ -165,11 +177,17 @@ async def demo_debate_conversation() -> None:
 
 
 async def demo_creative_collaboration() -> None:
-    """Demonstrate creative collaboration between agents"""
+    """
+    演示：创意写作协作场景
+    
+    学习要点：
+    1. 极高的 Temperature 激发创作灵感（0.8-0.9）
+    2. 通过系统提示词设计流水线接力写作模式
+    """
     print("\n🎨 Creative Collaboration Demo")
     print("-" * 50)
 
-    # Create story writer
+    # 创建故事作家 Agent：发散性思维
     writer = AssistantAgent(
         name="StoryWriter",
         model_client=create_model_client(temperature=0.9),
@@ -183,7 +201,7 @@ async def demo_creative_collaboration() -> None:
         每次写2-3句话，然后说"请编辑继续"。""",
     )
 
-    # Create editor
+    # 创建故事编辑 Agent：推进情节接力
     editor = AssistantAgent(
         name="Editor",
         model_client=create_model_client(temperature=0.8),
@@ -197,11 +215,11 @@ async def demo_creative_collaboration() -> None:
         每次写2-3句话。如果故事达到高潮，说"故事完成"。""",
     )
 
-    # Set up collaboration
+    # 设置共创终止暗号
     termination = TextMentionTermination("故事完成")
     team = RoundRobinGroupChat([writer, editor], termination_condition=termination)
 
-    # Start creative writing
+    # 启动接力小说任务
     task = "让我们一起创作一个关于时间旅行者的短篇科幻故事。"
     result = await team.run(task=task)
 
@@ -221,11 +239,16 @@ async def demo_creative_collaboration() -> None:
 
 
 async def demo_problem_solving_team() -> None:
-    """Demonstrate problem-solving collaboration"""
+    """
+    演示：问题解决协作组
+    
+    学习要点：
+    分步骤专业诊断流水线：分析师先拆解问题 -> 解决方案专家后出策略
+    """
     print("\n🧩 Problem Solving Team Demo")
     print("-" * 50)
 
-    # Create analyst
+    # 创建数据分析师：负责溯源问题
     analyst = AssistantAgent(
         name="DataAnalyst",
         model_client=create_model_client(temperature=0.3),
@@ -239,7 +262,7 @@ async def demo_problem_solving_team() -> None:
         分析完成后说"分析完成，请解决方案专家提出建议"。""",
     )
 
-    # Create solution architect
+    # 创建解决架构师：基于前者的分析出详细应对策略
     solution_expert = AssistantAgent(
         name="SolutionExpert",
         model_client=create_model_client(temperature=0.5),
@@ -253,14 +276,14 @@ async def demo_problem_solving_team() -> None:
         方案完成后说"解决方案已制定完成"。""",
     )
 
-    # Set up problem-solving session
+    # 定义专家团验收的终结词汇
     termination = TextMentionTermination("解决方案已制定完成")
     team = RoundRobinGroupChat(
         [analyst, solution_expert],
         termination_condition=termination,
     )
 
-    # Present the problem
+    # 向业务解决小组抛出痛点
     task = "我们的电商网站转化率下降了15%，需要分析原因并提出解决方案。"
     result = await team.run(task=task)
 
@@ -281,11 +304,16 @@ async def demo_problem_solving_team() -> None:
 
 
 async def demo_max_message_termination() -> None:
-    """Demonstrate conversation with max message limit"""
+    """
+    演示：最大消息数量限制
+    
+    学习要点：
+    如何防止无休止的水群（死循环），在指定对话轮数后强制拔电源掐断。
+    """
     print("\n⏱️ Max Message Termination Demo")
     print("-" * 50)
 
-    # Create chatty agents
+    # 创建两个极其健谈的闲聊机器人
     agent1 = AssistantAgent(
         name="ChatterBox1",
         model_client=create_model_client(temperature=0.7),
@@ -298,11 +326,11 @@ async def demo_max_message_termination() -> None:
         system_message="你是另一个健谈的聊天机器人，也喜欢技术讨论。每次回复要简短。",
     )
 
-    # Limit conversation to 6 messages
+    # 强制终止条件：不管聊得多么火热，一旦团队总消息数达到 6 条立即强制拔电源
     termination = MaxMessageTermination(6)
     team = RoundRobinGroupChat([agent1, agent2], termination_condition=termination)
 
-    # Start unlimited chat
+    # 抛出一个容易引发无限讨论的宽泛话题
     task = "聊聊人工智能的发展趋势吧！"
     result = await team.run(task=task)
 
@@ -318,7 +346,9 @@ async def demo_max_message_termination() -> None:
 
 
 async def main() -> None:
-    """Main demonstration function"""
+    """
+    主入口函数：依次执行所有双智能体对话模式的演示
+    """
     print("🤖 AutoGen 简单对话系统演示")
     print("=" * 60)
 

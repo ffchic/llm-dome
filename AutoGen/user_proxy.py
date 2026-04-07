@@ -109,16 +109,46 @@ async def demo_code_execution() -> None:
     from autogen_agentchat.agents import CodeExecutorAgent
     
     # 1. 创建本地代码执行器
+    import warnings
+    # 忽略本地执行的安全警告，因为我们已经确认风险并添加了人工审核
+    warnings.filterwarnings("ignore", message=".*Using LocalCommandLineCodeExecutor.*")
+    
     # work_dir 指定代码文件保存和执行的目录
     work_dir = os.path.join(os.path.dirname(__file__), "coding")
     os.makedirs(work_dir, exist_ok=True)
     local_executor = LocalCommandLineCodeExecutor(work_dir=work_dir)
     
     # 2. 创建代码执行 Agent
+    # 定义人工审核函数，用于在执行代码前进行确认
+    def human_approval(*args, **kwargs):
+        print("\n" + "="*40)
+        print("⚠️ 助手生成了以下代码准备在本地执行：")
+        
+        # 提取并展示生成的代码块内容
+        for arg in args:
+            if isinstance(arg, list):
+                for item in arg:
+                    code_content = getattr(item, "code", str(item))
+                    print(f"\n```\n{code_content}\n```")
+            else:
+                code_content = getattr(arg, "code", str(arg))
+                print(f"\n```\n{code_content}\n```")
+        
+        print("="*40)
+        response = input("是否允许执行? (y/n): ")
+        is_approved = response.strip().lower() in ['y', 'yes']
+        
+        # 返回带有 approved 属性的对象 (适配 AutoGen 的 Approval 结构)
+        class ApprovalResult:
+            def __init__(self, approved: bool):
+                self.approved = approved
+        return ApprovalResult(approved=is_approved)
+
     executor_agent = CodeExecutorAgent(
         name="ExecutorAgent",
         code_executor=local_executor,
         description="负责执行Python代码并返回结果",
+        approval_func=human_approval,  # 注入人工审核机制
     )
     
     # 3. 创建负责编写代码的 Assistant
@@ -128,12 +158,15 @@ async def demo_code_execution() -> None:
         system_message="""你是一个有用的AI助手。
         当你需要解决问题时，你可以编写Python代码。
         请将代码放在 ```python 和 ``` 之间，它将被执行。
-        当任务解决完毕后，回复 'TERMINATE' 结束对话。""",
+        警告：请不要在提供代码的同一轮回复中说出 'TERMINATE'！
+        你必须等待代码被执行，看到执行成功并输出结果后，才能在下一轮单独回复 'TERMINATE' 来结束对话。""",
     )
     
-    # 4. 组建团队，设置终止条件（遇到 TERMINATE 则终止）
-    from autogen_agentchat.conditions import TextMessageTermination
-    termination = TextMessageTermination("TERMINATE")
+    # 4. 组建团队，设置组合终止条件（只拦截由 CoderAgent 发出的 "TERMINATE" 消息，或者达到最大对话轮数）
+    from autogen_agentchat.conditions import TextMentionTermination, MaxMessageTermination
+    
+    # 增加 sources=["CoderAgent"] 参数，防止用户初始任务中提到的 TERMINATE 直接触发终止！
+    termination = TextMentionTermination("TERMINATE", sources=["CoderAgent"]) | MaxMessageTermination(20)
     
     team = RoundRobinGroupChat(
         [assistant, executor_agent], 
@@ -141,7 +174,7 @@ async def demo_code_execution() -> None:
     )
     
     # 5. 指派需要执行代码的任务
-    task = "写一个Python脚本，计算 1 到 100 之间所有偶数的平方和，打印出最终结果，然后说 TERMINATE。"
+    task = "写一个Python脚本，计算 1 到 100 之间所有偶数的平方和，打印出最终结果。"
     
     await Console(team.run_stream(task=task))
 
@@ -312,6 +345,59 @@ async def demo_role_based_interaction() -> None:
         print(f"   {sender}: {message.content[:120]}...")
 
 
+async def demo_tool_based_termination() -> None:
+    """
+    演示：基于 Tool Calling 的工作流终止
+    
+    不再让大模型通过文本输出 'TERMINATE' 来结束对话（文本匹配不稳定，容易被大模型误触发）。
+    而是要求大模型必须调用 `submit_result` 工具。
+    工具执行后会返回系统的魔法字符串，团队只需监听到该特定字符串即可安全终止。
+    """
+    print("\n🛠️ Tool-Based Termination Demo ")
+    print("-" * 40)
+    
+    from autogen_agentchat.conditions import TextMentionTermination, MaxMessageTermination
+
+    # 1. 定义一个用于“交卷”的工具函数
+    async def submit_result(final_answer: str) -> str:
+        """
+        当且仅当你完全解决了用户的问题并得出最终结果时，调用此工具提交答案以结束任务。
+        
+        Args:
+            final_answer: 你对本次任务的最终解答结果内容
+        """
+        print(f"\n[系统拦截] 📥 成功接收到大模型通过工具提交的结果:\n{final_answer}")
+        
+        # 返回一个不对大模型公开的、极其特殊的终止识别词
+        # 外部框架只监听这个特殊词来终结循环
+        return "SYSTEM_AUTHORIZED_TERMINATION_SIGNAL"
+
+    # 2. 创建负责干活的 AssistantAgent，并挂载工具
+    assistant = AssistantAgent(
+        name="SmartWorker",
+        model_client=create_model_client(),
+        tools=[submit_result],
+        system_message="""你是一个计算小能手。
+        【重要交卷规则】：
+        你不允许在文本里自行输出 'TERMINATE' 或者任何终止词。
+        当你算出最终结果后，必须且只能通过调用 `submit_result` 工具将结果提交即可。""",
+    )
+
+    # 3. 设置只认“系统授权信号”的系统级终止规则
+    # TextMentionTermination 会检查所有消息内容，当工具被执行并返回了该字符串时，系统就会终止
+    termination = TextMentionTermination("SYSTEM_AUTHORIZED_TERMINATION_SIGNAL") | MaxMessageTermination(10)
+
+    # 4. 创建团队（这里只用这一个 Agent 演示自我调用工具交卷的流程）
+    team = RoundRobinGroupChat(
+        [assistant], 
+        termination_condition=termination
+    )
+
+    task = "请计算一下 1 到 100 所有连续整数的和。完成计算后，请正式交卷。"
+
+    await Console(team.run_stream(task=task))
+
+
 async def main() -> None:
     """主入口函数：执行所有 UserProxyAgent 演示"""
     print("🤖 AutoGen UserProxyAgent 功能展示")
@@ -322,7 +408,8 @@ async def main() -> None:
     # await demo_custom_input_function()
     # await demo_collaborative_workflow()
     # await demo_role_based_interaction()
-    await demo_code_execution()
+    # await demo_code_execution()
+    await demo_tool_based_termination()
 
     print("\n✨ 所有UserProxy演示完成!")
     # print("\n📚 关键要点:")
